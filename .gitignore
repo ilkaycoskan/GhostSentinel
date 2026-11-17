@@ -1,0 +1,15 @@
+# Build outputs
+Debug/
+Release/
+*.o
+*.d
+*.elf
+*.map
+*.list
+*.su
+*.cyclo
+
+# IDE temporary files
+.settings/
+.metadata/
+*.launch
