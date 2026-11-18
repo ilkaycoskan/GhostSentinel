@@ -134,12 +134,9 @@ Ham verilerle tüm ölçüm kayıtları: [docs/OLCUMLER.md](docs/OLCUMLER.md)
 
 ## Yol haritası
 
-- [ ] Uçuş kontrolcüsü için yüksek taraf anahtarlama (P-MOSFET + N-MOSFET sürücü + RC yumuşak başlatma)
-- [ ] Tickless modundaki ek akımın kaynağını bulmak (bare-metal 1–2 µA'ya karşı 20–30 µA)
-- [ ] LoRa modülü akımı ↔ WOR periyodu ↔ gecikme
+- [ ] Uçuş kontrolcüsü için yüksek taraf anahtarlama (P-MOSFET + N-MOSFET sürücü + RC yumuşak başlatma- [ ] LoRa modülü akımı ↔ WOR periyodu ↔ gecikme
 - [ ] LoRa güvenliği: testte aynı kanaldaki yabancı bir paket alındı → ağ kimliği, E22 şifreleme anahtarı, doğrulamalı komutlar
 - [ ] `-O2` ile analiz süresi, daha az Goertzel frekansı / FFT karşılaştırması
-- [ ] Geri dönüşün ana sistemin kendisinden gelmesi (ör. uçuş kontrolcüsünden "iş bitti" GPIO hattı), LoRa/butona ek olarak
 - [ ] MAVLink üzerinden PX4 uçuş kontrolcüsü entegrasyonu
 
 ## Lisans
