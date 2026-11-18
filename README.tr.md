@@ -1,7 +1,7 @@
 # Ghost Sentinel Lite
 
 **STM32L4 üzerinde ultra düşük güçlü, olay tetiklemeli nöbetçi düğüm**
-µA seviyesinde uyur; ses (alkış / motor) ya da LoRa uyandırma paketiyle uyanır, MOSFET üzerinden ana sistemin gücünü açar ve tekrar uykuya döner.
+µA seviyesinde uyur; ses (alkış / motor) ya da LoRa uyandırma paketiyle uyanır, MOSFET üzerinden ana sistemin gücünü açar, bir uyku komutu gelene kadar açık tutar ve bu süre boyunca kendisi uyumaya devam eder.
 
 🇬🇧 [English README](README.md)
 
@@ -34,6 +34,7 @@ Bu repo, bitirme projemin (*Ghost Sentinel*) **Nöbetçi Kontrolcü** kısmını
 | **Ses sınıflandırma** | TIM6 → ADC1 → DMA, 8 kHz'te 1024 örnek; zarf tepe/ortalama oranı + **Goertzel** taraması (100–3000 Hz); karar ağacı: `ALKIŞ / VURMA / MOTOR / DİĞER` |
 | **LoRa ile uyanma** | SX1262 HAT (Ebyte E22) **Wake-On-Radio** modunda; **LSE ile beslenen LPUART1** start bitinde MCU'yu Stop 2'den uyandırır |
 | **Ana güç anahtarlama** | PA8 → IRLZ44N alçak taraf anahtar; GPIO durumu Stop 2'de korunur |
+| **Güç tutma + geri dönüş** | Uyanma olayı ana gücü **açar ve açık tutar**; güç bir geri dönüş olayıyla kapanır: LoRa `sleep`/`uyu` komutu ya da B1 butonu. 10 dakikalık güvenlik zaman aşımı gücün sonsuza kadar açık kalmasını önler |
 | **Olay tabanlı tasarım** | Kesmeler sadece kuyruğa olay atar; tek bir görev durum makinesini işletir |
 
 ## Donanım
@@ -59,9 +60,21 @@ Bu repo, bitirme projemin (*Ghost Sentinel*) **Nöbetçi Kontrolcü** kısmını
 LPUART1: **4800 baud**, saat kaynağı **LSE**, start bitinde uyanma.
 
 LoRa HAT (düğüm): UART jumper **B**, **M0 açık, M1 takılı** (WOR alıcı, REG3 = `0x03`), **UART 4800 baud** (REG0 = `0x42`, hava hızı 2.4k).
-LoRa HAT (PC): UART jumper **A**, M0 açık, M1 takılı (WOR verici, REG3 = `0x0B`), 9600 baud'da `wake` (veya `uyan`) gönder.
+LoRa HAT (PC): UART jumper **A**, M0 açık, M1 takılı (WOR verici, REG3 = `0x0B`), 9600 baud'da `wake`/`uyan` ya da `sleep`/`uyu` gönder.
 
 > Not: HAT'in Raspberry Pi başlığındaki RX/TX etiketleri **Pi'nin** bakış açısına göre yazılmış.
+
+### Ana güç kontrolü
+
+| Olay | Ana güç |
+|---|---|
+| Ses `CLAP` (alkış) ya da `MOTOR` olarak sınıflandırıldı | **AÇIK** |
+| LoRa `wake` / `uyan` | **AÇIK** |
+| LoRa `sleep` / `uyu` | **KAPALI** (uzaktan geri dönüş) |
+| B1 butonu | aç/kapa (yerel geri dönüş) |
+| Geri dönüş gelmeden 10 dk açık kaldı | **KAPALI** (güvenlik zaman aşımı) |
+
+Güç bu olaylar arasında açık kalır; nöbetçi MCU bu sırada Stop 2'de uyumaya devam eder (PA8 durumunu korur). Tekrarlanan komut sadece `main power already ON` yazar; her kapanma logu gücün ne kadar süre açık kaldığını gösterir. Nabız (heartbeat) satırında `power=ON/OFF` görünür.
 
 ## Sonuçlar
 
@@ -126,6 +139,7 @@ Ham verilerle tüm ölçüm kayıtları: [docs/OLCUMLER.md](docs/OLCUMLER.md)
 - [ ] LoRa modülü akımı ↔ WOR periyodu ↔ gecikme
 - [ ] LoRa güvenliği: testte aynı kanaldaki yabancı bir paket alındı → ağ kimliği, E22 şifreleme anahtarı, doğrulamalı komutlar
 - [ ] `-O2` ile analiz süresi, daha az Goertzel frekansı / FFT karşılaştırması
+- [ ] Geri dönüşün ana sistemin kendisinden gelmesi (ör. uçuş kontrolcüsünden "iş bitti" GPIO hattı), LoRa/butona ek olarak
 - [ ] MAVLink üzerinden PX4 uçuş kontrolcüsü entegrasyonu
 
 ## Lisans

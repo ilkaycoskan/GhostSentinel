@@ -7,7 +7,7 @@ Waveshare SX1262 868M LoRa HAT ×2 (Ebyte E22-900T22S) · FreeRTOS (CMSIS-RTOS2)
 
 ---
 
-## 1. Akım ölçümleri (yalnızca MCU, JP6 üzerinden)
+## 1. Akım ölçümleri (MCU: JP6 üzerinden, modüller: besleme hattına seri)
 
 | Mod | Ölçülen | Not |
 |---|---|---|
@@ -15,14 +15,14 @@ Waveshare SX1262 868M LoRa HAT ×2 (Ebyte E22-900T22S) · FreeRTOS (CMSIS-RTOS2)
 | **Stop 2, bare-metal** (EXTI ile uyanma) | **1–2 µA** | Rapordaki teorik değerle uyumlu |
 | FreeRTOS, tickless **kapalı** | ~1 mA | Her 1 ms SysTick ile uyanıyor |
 | FreeRTOS, debugger bağlıyken | ~70 µA | Debug birimi Stop'ta açık kalıyor |
-| **FreeRTOS + tickless idle (LPTIM1)** | **20–30 µA** | ~40× iyileşme. Bare-metal'e göre fark açık konu (bkz. §6) |
-| MCU uyanık (4 MHz) | 1.2 mA |
-| Ses modülü (LED'li) | 3 mA | 
-| LoRa HAT (WOR / Mod 0 / uyku) | 0.5 mA / 16mA / 2-3 uA | 
+| **FreeRTOS + tickless idle (LPTIM1)** | **20–30 µA** | ~40× iyileşme. Bare-metal'e göre fark açık konu (bkz. §7) |
+| MCU uyanık (4 MHz) | **1.2 mA** | Beklenen aralıkta (§1.1) |
+| Ses modülü (LED'li) | **3 mA** | Beklenen aralıkta (§1.1) |
+| LoRa HAT (WOR / Mod 0 / uyku) | **0.5 mA / 16 mA / 2–3 µA** | Beklenen aralıklarda (§1.1) |
 
 ### 1.1 Beklenen değerler (datasheet + tahmin, ölçülmedi)
 
-Bu tablo ölçüm değil; ölçümlerin hangi aralıkta çıkması gerektiğini gösteren bir referans. Değerler 3.3 V (ses modülü) ve 5 V (HAT) beslemeye göre verildi.
+Bu tablo datasheet ve tahminlere dayanan bir referanstır; §1'deki ölçülen değerler bu aralıklara düşüyor. Değerler 3.3 V (ses modülü) ve 5 V (HAT) beslemeye göre verildi.
 
 | Bileşen / mod | Beklenen | Dayanak |
 |---|---|---|
@@ -40,16 +40,16 @@ Bu tablo ölçüm değil; ölçümlerin hangi aralıkta çıkması gerektiğini 
 | E22-900T22S, WOR alıcı, 2000 ms periyot | ~0.1–0.5 mA ortalama | tahmin: her periyotta kısa bir dinleme penceresi; datasheet'te verilmiyor |
 | Waveshare HAT kartının kendi yükü (LED, regülatör) | +1–5 mA | tahmin; HAT'ten ölçülen değer modülden yüksek çıkabilir |
 
-**Beklenen sistem bütçesi (boşta, nöbet modunda):**
+**Sistem bütçesi (boşta, nöbet modunda), ölçülen değerlerle:**
 
 | Kalem | Ortalama akım |
 |---|---|
 | MCU (tickless, ölçüldü) | 0.02–0.03 mA |
-| Ses modülü (LED'li, tahmin) | 2–4 mA |
-| LoRa HAT, WOR (tahmin) | 1–5 mA |
-| **Toplam** | **~3–9 mA** |
+| Ses modülü (LED'li, ölçüldü) | 3 mA |
+| LoRa HAT, WOR (ölçüldü) | 0.5 mA |
+| **Toplam** | **~3.5 mA** |
 
-**Çıkarım:** MCU tarafı µA seviyesine indi, ama hazır modüller sistemi mA seviyesinde tutuyor. Ses modülü ve HAT, MCU'dan ~100–300 kat fazla çekiyor. Örneğin 2000 mAh'lik bir pil yalnızca MCU ile yıllarca, modüllerle birlikte ise yaklaşık 10–30 gün dayanır. Sonraki iyileştirmeler:
+**Çıkarım:** MCU tarafı µA seviyesine indi, ama hazır modüller sistemi mA seviyesinde tutuyor. Modüller birlikte MCU'dan ~140 kat fazla çekiyor. Örneğin 2000 mAh'lik bir pil yalnızca MCU ile yıllarca, modüllerle birlikte ise yaklaşık 24 gün dayanır. Sonraki iyileştirmeler:
 - Ses modülündeki güç LED'ini sökmek (~1–2 mA kazanç)
 - LM393 yerine nanoamper seviyesinde bir karşılaştırıcı ya da "wake-on-sound" mikrofon kullanmak
 - Waveshare HAT yerine çıplak E22 modülünü doğrudan beslemek ve WOR periyodunu uzatmak (gecikme ↔ akım dengesi)
@@ -197,7 +197,34 @@ Etiketler sıraya göre çıkarıldı (alkış → vurma → konuşma → motor)
 - Hata analizi: (a) alkış #4 — geç uyanma, tepe kaçtı (tepe/ort 3.0); (b) konuşma #10 — çok zayıf sinyal (rms 3 mV), spektrum gürültüye kaydı.
 - Önerilen düzeltme: darbe eşiği 3.5 → 2.7 (yeni test seti ile doğrulanmalı).
 
-## 6. Açık konular
+## 6. Ana güç kontrolü (uyan → tut → geri dönüş)
+
+İlk sürüm ana gücü sabit 3 s açıyordu (`osDelay(3000)`). Artık bir uyanma olayı ana gücü **açıyor ve açık tutuyor**; güç ancak bir geri dönüş olayıyla kapanıyor. Tüm geçişler tek bir fonksiyondan geçiyor: `main_power_set(on, reason)`. Bu fonksiyon gücü neyin açıp kapattığını da loga yazıyor.
+
+| Olay | Eylem |
+|---|---|
+| Ses: `CLAP` / `MOTOR` | AÇ |
+| LoRa `wake` / `uyan` | AÇ |
+| LoRa `sleep` / `uyu` | KAPAT (uzaktan geri dönüş) |
+| B1 butonu | aç/kapa (yerel geri dönüş) |
+| Nabız, gücün ≥ 10 dk açık kaldığını görürse | KAPAT (güvenlik zaman aşımı) |
+
+### 6.1 Testler
+
+| Test | Sonuç |
+|---|---|
+| LoRa `uyan` → güç AÇIK, LED yanık kalıyor | ✅ |
+| LoRa `uyu` → güç KAPALI, log açık kalma süresini gösteriyor | ✅ |
+| Alkış gücü açıyor, buton kapatıyor | ✅ |
+| Güç açıkken ikinci `uyan` → `main power already ON` | ✅ |
+| Güç açıkken MCU Stop 2'de uyumaya devam ediyor (`stop2` / `sleep` artıyor) | ✅ |
+| Güvenlik zaman aşımı (10 dk; kısaltılmış değerle test) | yazıldı, test bekliyor |
+
+### 6.2 Kod incelemesinde bulunan hata
+Güvenlik zaman aşımı kontrolü ilk başta `case EVT_HEARTBEAT:` içinde `break;` satırından **sonra** yazılmıştı; bu yüzden hiç çalışamıyordu (ölü kod). Derleyici uyarı vermedi, normal testler de geçti, çünkü hepsi 10 dakikadan kısa sürüyordu. Kontrol `printf`/`break` satırlarının üstüne taşınınca düzeldi. Ders: bir güvenlik özelliğine, onu gerçekten tetikleyen bir testten sonra güvenilir.
+
+## 7. Açık konular
+- Kısaltılmış `POWER_MAX_MS` ile güvenlik zaman aşımı testi.
 - Tickless akımı 20–30 µA, bare-metal Stop 2 ise 1–2 µA: Test A (Adım 4 bare-metal+LPTIM ölçümü) ve Test C (nabız kapalı) yapılacak.
 - `-O0` → `-O2` analiz süresi karşılaştırması.
 - MOSFET/röle ile gerçek yük; yük kolu akımı.

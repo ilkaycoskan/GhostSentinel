@@ -140,18 +140,31 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     osMessageQueuePut(evtQueueHandle, &evt, 0, 0);
 }
 
-/* Main power cycle: PA8 -> IRLZ44N -> load (LED). LD2 mirrors the state. */
-static void main_power_cycle(void)
+/* Main power: PA8 -> IRLZ44N -> load (LED). LD2 mirrors the state.
+ * Turned ON by a wake event, stays ON until a "sleep" feedback
+ * (LoRa command or button) or the safety timeout. */
+#define POWER_MAX_MS   (10UL * 60UL * 1000UL)   /* safety: auto-off after 10 min */
+
+static uint8_t  main_power_on    = 0;   /* current state: 1 = ON */
+static uint32_t main_power_since = 0;   /* tick when power was turned ON */
+
+static void main_power_set(uint8_t on, const char *reason)
 {
-    HAL_GPIO_WritePin(PWR_EN_GPIO_Port, PWR_EN_Pin, GPIO_PIN_SET);    /* MOSFET ON  */
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-    printf("         MAIN POWER: ON\r\n");
+    if (on == main_power_on) {
+        printf("         main power already %s (%s)\r\n", on ? "ON" : "OFF", reason);
+        return;
+    }
+    main_power_on = on;
+    HAL_GPIO_WritePin(PWR_EN_GPIO_Port, PWR_EN_Pin, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LD2_GPIO_Port,    LD2_Pin,    on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
-    osDelay(3000);   /* MCU sleeps in Stop 2 meanwhile; PA8 stays HIGH */
-
-    HAL_GPIO_WritePin(PWR_EN_GPIO_Port, PWR_EN_Pin, GPIO_PIN_RESET);  /* MOSFET OFF */
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-    printf("         MAIN POWER: OFF\r\n");
+    if (on) {
+        main_power_since = osKernelGetTickCount();
+        printf("         MAIN POWER: ON  (%s)\r\n", reason);
+    } else {
+        printf("         MAIN POWER: OFF (%s, was on for %lu ms)\r\n",
+               reason, osKernelGetTickCount() - main_power_since);
+    }
 }
 
 void HAL_UARTEx_WakeupCallback(UART_HandleTypeDef *huart)
@@ -823,7 +836,7 @@ void StartSentinelTask(void *argument)
         printf("[%6lu ms] WAKE reason=SOUND #%lu\r\n", t, sound_count);
         sound_class_t s = sound_measure_classify();
         if (s == SND_CLAP || s == SND_MOTOR) {
-            main_power_cycle();
+            main_power_set(1, "sound");
         } else {
             false_alarm_count++;
             printf("         main power NOT enabled -> false alarm #%lu, back to sleep\r\n",
@@ -837,30 +850,40 @@ void StartSentinelTask(void *argument)
       }
 
       case EVT_BUTTON:
+        /* Local feedback: the button toggles main power */
         button_count++;
-        printf("[%6lu ms] WAKE reason=BUTTON #%lu\r\n", t, button_count);
-        main_power_cycle();
+        printf("[%6lu ms] BUTTON #%lu\r\n", t, button_count);
+        main_power_set(!main_power_on, "button");
         break;
 
       case EVT_LORA:
         lora_count++;
-        printf("[%6lu ms] WAKE reason=LORA #%lu msg=\"%s\"\r\n", t, lora_count, lora_msg);
-        if (strstr(lora_msg, "wake") != NULL || strstr(lora_msg, "uyan") != NULL) {
-            main_power_cycle();
+        printf("[%6lu ms] LORA #%lu msg=\"%s\"\r\n", t, lora_count, lora_msg);
+        /* check "sleep" first */
+        if (strstr(lora_msg, "sleep") != NULL || strstr(lora_msg, "uyu") != NULL) {
+            main_power_set(0, "lora sleep");
+        } else if (strstr(lora_msg, "wake") != NULL || strstr(lora_msg, "uyan") != NULL) {
+            main_power_set(1, "lora wake");
         } else {
-            printf("         unknown command, main power not enabled\r\n");
+            printf("         unknown command, ignored\r\n");
         }
         break;
 
       case EVT_HEARTBEAT:
         /* HAL_GetTick() only advances while awake -> "awake" = total awake time */
-        printf("[%6lu ms] HEARTBEAT sound=%lu button=%lu lora=%lu | awake=%lu ms | "
-               "stop2=%lu (timer=%lu event=%lu) sleep=%lu ms | lora_bytes=%lu err=%lu\r\n",
-               t, sound_count, button_count, lora_count, HAL_GetTick(),
-               tl_stop2_count, tl_timer_wakeups, tl_event_wakeups, tl_sleep_ms,
-               lora_byte_count, lora_error_count);
+    	  /* Safety: never leave main power on forever */
+    	  if (main_power_on && (t - main_power_since) >= POWER_MAX_MS) {
+    	              main_power_set(0, "safety timeout");
+    	          }
+
+    	  printf("[%6lu ms] HEARTBEAT power=%s sound=%lu button=%lu lora=%lu | awake=%lu ms | "
+                 "stop2=%lu (timer=%lu event=%lu) sleep=%lu ms | lora_bytes=%lu err=%lu\r\n",
+                 t, main_power_on ? "ON" : "OFF", sound_count, button_count, lora_count, HAL_GetTick(),
+                 tl_stop2_count, tl_timer_wakeups, tl_event_wakeups, tl_sleep_ms,
+                 lora_byte_count, lora_error_count);
         printf("          dbg busy=%lu hold=%lu lock=%lu\r\n", tl_dbg_busy, tl_dbg_hold, tl_dbg_lock);
         break;
+
     }   /* end switch */
   }     /* end for */
   /* USER CODE END 5 */

@@ -7,7 +7,7 @@ Hardware: NUCLEO-L476RG (STM32L476RG, MSI 4 MHz, Range 2) · Sound module (elect
 
 ---
 
-## 1. Current measurements (MCU only, through JP6)
+## 1. Current measurements (MCU through JP6, modules in series with their supply)
 
 | Mode | Measured | Note |
 |---|---|---|
@@ -15,14 +15,14 @@ Hardware: NUCLEO-L476RG (STM32L476RG, MSI 4 MHz, Range 2) · Sound module (elect
 | **Stop 2, bare-metal** (EXTI wake-up) | **1–2 µA** | Matches the theoretical value in the report |
 | FreeRTOS, tickless **off** | ~1 mA | Woken by SysTick every 1 ms |
 | FreeRTOS, debugger connected | ~70 µA | Debug unit stays powered in Stop |
-| **FreeRTOS + tickless idle (LPTIM1)** | **20–30 µA** | ~40× improvement. Gap to bare-metal is an open issue (see §6) |
-| MCU awake (4 MHz) | 1.2 mA | 
-| Sound module (with LEDs) | 3 mA |
-| LoRa HAT (WOR / Mode 0 / sleep) | 0.5 mA / 16mA / 2-3 uA | 
+| **FreeRTOS + tickless idle (LPTIM1)** | **20–30 µA** | ~40× improvement. Gap to bare-metal is an open issue (see §7) |
+| MCU awake (4 MHz) | **1.2 mA** | Within the expected range (§1.1) |
+| Sound module (with LEDs) | **3 mA** | Within the expected range (§1.1) |
+| LoRa HAT (WOR / Mode 0 / sleep) | **0.5 mA / 16 mA / 2–3 µA** | Within the expected ranges (§1.1) |
 
 ### 1.1 Expected values (datasheet + estimates, not measured)
 
-This table is not a measurement; it is a reference for the range the measurements should fall into. Values assume 3.3 V (sound module) and 5 V (HAT) supply.
+This table is a reference based on datasheets and estimates; the measured values in §1 fall within these ranges. Values assume 3.3 V (sound module) and 5 V (HAT) supply.
 
 | Component / mode | Expected | Basis |
 |---|---|---|
@@ -40,16 +40,16 @@ This table is not a measurement; it is a reference for the range the measurement
 | E22-900T22S, WOR receiver, 2000 ms period | ~0.1–0.5 mA average | estimate: a short listen window every period; not given in the datasheet |
 | Waveshare HAT board overhead (LED, regulator) | +1–5 mA | estimate; the HAT may measure higher than the bare module |
 
-**Expected system budget (idle, sentinel mode):**
+**System budget (idle, sentinel mode), with measured values:**
 
 | Item | Average current |
 |---|---|
 | MCU (tickless, measured) | 0.02–0.03 mA |
-| Sound module (with LEDs, estimate) | 2–4 mA |
-| LoRa HAT, WOR (estimate) | 1–5 mA |
-| **Total** | **~3–9 mA** |
+| Sound module (with LEDs, measured) | 3 mA |
+| LoRa HAT, WOR (measured) | 0.5 mA |
+| **Total** | **~3.5 mA** |
 
-**Takeaway:** the MCU side is down to µA, but the off-the-shelf modules keep the system at mA level; the sound module and the HAT draw ~100–300× more than the MCU. A 2000 mAh battery would last years with the MCU alone, but only about 10–30 days with the modules. Next improvements:
+**Takeaway:** the MCU side is down to µA, but the off-the-shelf modules keep the system at mA level; together the modules draw ~140× more than the MCU. A 2000 mAh battery would last years with the MCU alone, but only about 24 days with the modules. Next improvements:
 - Remove the power LED on the sound module (~1–2 mA saved)
 - Replace the LM393 with a nanoamp comparator or a wake-on-sound microphone
 - Power a bare E22 module directly instead of the Waveshare HAT, and lengthen the WOR period (latency ↔ current trade-off)
@@ -197,7 +197,34 @@ Labels were inferred from the recording order (clap → knock → speech → mot
 - Error analysis: (a) clap #4 — late wake-up, the peak was missed (crest 3.0); (b) speech #10 — very weak signal (rms 3 mV), spectrum dominated by noise.
 - Proposed fix: impulse threshold 3.5 → 2.7 (to be validated with a new test set).
 
-## 6. Open issues
+## 6. Main power control (wake → hold → feedback)
+
+The first version switched main power on for a fixed 3 s (`osDelay(3000)`). Now a wake event turns main power **on and keeps it on** until a feedback event arrives. All transitions go through one function, `main_power_set(on, reason)`, which also logs the reason.
+
+| Event | Action |
+|---|---|
+| Sound: `CLAP` / `MOTOR` | ON |
+| LoRa `wake` / `uyan` | ON |
+| LoRa `sleep` / `uyu` | OFF (remote feedback) |
+| Button B1 | toggle (local feedback) |
+| Heartbeat finds power ON for ≥ 10 min | OFF (safety timeout) |
+
+### 6.1 Tests
+
+| Test | Result |
+|---|---|
+| LoRa `uyan` → power ON, LED stays on | ✅ |
+| LoRa `uyu` → power OFF, log shows on-time | ✅ |
+| Clap turns power ON, button turns it OFF | ✅ |
+| Second `uyan` while ON → `main power already ON` | ✅ |
+| MCU keeps sleeping in Stop 2 while power is ON (`stop2` / `sleep` keep increasing) | ✅ |
+| Safety timeout (10 min; test with a shortened value) | implemented, test pending |
+
+### 6.2 Bug found in code review
+The safety-timeout check was first placed **after** `break;` inside `case EVT_HEARTBEAT:`, so it could never run (dead code). The compiler gave no warning and normal tests passed, because they were shorter than 10 min. Moving the check above the `printf`/`break` fixed it. Lesson: a safety feature is only trusted after a test that actually triggers it.
+
+## 7. Open issues
+- Safety timeout test with a shortened `POWER_MAX_MS`.
 - Tickless current is 20–30 µA while bare-metal Stop 2 is 1–2 µA: Test A (Step 4 bare-metal + LPTIM measurement) and Test C (heartbeat off) to be done.
 - `-O0` → `-O2` analysis time comparison.
 - Real load with MOSFET/relay; load-side current.

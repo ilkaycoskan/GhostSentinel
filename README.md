@@ -1,7 +1,7 @@
 # Ghost Sentinel Lite
 
 **Ultra-low-power, event-driven sentinel node on STM32L4**
-Sleeps at µA level, wakes up on a sound event (clap / motor) or a LoRa wake-up packet, powers up the main system through a MOSFET, and goes back to sleep.
+Sleeps at µA level, wakes up on a sound event (clap / motor) or a LoRa wake-up packet, powers up the main system through a MOSFET, keeps it on until a sleep command arrives, and keeps sleeping itself the whole time.
 
 🇹🇷 [Türkçe README](README.tr.md)
 
@@ -34,6 +34,7 @@ This repository is the desktop prototype of the **Sentinel Controller** of my gr
 | **Sound classification** | TIM6 → ADC1 → DMA, 1024 samples @ 8 kHz; envelope crest factor + **Goertzel** scan (100–3000 Hz); decision tree: `CLAP / KNOCK / MOTOR / OTHER` |
 | **Wake on LoRa** | SX1262 HAT (Ebyte E22) in **Wake-On-Radio** mode; **LPUART1 on LSE** wakes the MCU from Stop 2 on start bit |
 | **Main power switching** | PA8 → IRLZ44N low-side switch; GPIO state is retained in Stop 2 |
+| **Power hold + feedback** | A wake event turns main power **on and keeps it on**; it is turned off by a feedback event: LoRa `sleep`/`uyu` command or button B1. A 10 min safety timeout prevents it from staying on forever |
 | **Event-driven design** | ISRs only post events to a queue; a single task runs the state machine |
 
 ## Hardware
@@ -59,9 +60,21 @@ This repository is the desktop prototype of the **Sentinel Controller** of my gr
 LPUART1: **4800 baud**, kernel clock **LSE**, wake-up on start bit.
 
 LoRa HAT (node): UART jumper **B**, **M0 open, M1 fitted** (WOR receiver, REG3 = `0x03`), **UART 4800 baud** (REG0 = `0x42`, air rate 2.4k).
-LoRa HAT (PC): UART jumper **A**, M0 open, M1 fitted (WOR transmitter, REG3 = `0x0B`), send `wake` (or `uyan`) at 9600 baud.
+LoRa HAT (PC): UART jumper **A**, M0 open, M1 fitted (WOR transmitter, REG3 = `0x0B`), send `wake`/`uyan` or `sleep`/`uyu` at 9600 baud.
 
 > Note: the RX/TX labels on the HAT's Raspberry Pi header are from the **Pi's** point of view.
+
+### Main power control
+
+| Event | Main power |
+|---|---|
+| Sound classified as `CLAP` or `MOTOR` | **ON** |
+| LoRa `wake` / `uyan` | **ON** |
+| LoRa `sleep` / `uyu` | **OFF** (remote feedback) |
+| Button B1 | toggle (local feedback) |
+| ON for 10 min without feedback | **OFF** (safety timeout) |
+
+Power stays on between these events; the sentinel MCU keeps sleeping in Stop 2 meanwhile (PA8 keeps its state). A repeated command only logs `main power already ON`, and every OFF log shows how long power was on. The heartbeat line reports `power=ON/OFF`.
 
 ## Results
 
@@ -126,6 +139,7 @@ Key files:
 - [ ] LoRa module current vs. WOR period vs. latency
 - [ ] LoRa security: a foreign packet on the same channel was received during testing → network ID, E22 encryption key, authenticated commands
 - [ ] `-O2` analysis time, fewer Goertzel bins / FFT comparison
+- [ ] Feedback from the main system itself (e.g. a "done" GPIO line from the flight controller) in addition to LoRa/button
 - [ ] Integration with a PX4 flight controller over MAVLink
 
 ## License
