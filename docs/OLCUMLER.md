@@ -16,9 +16,44 @@ Waveshare SX1262 868M LoRa HAT ×2 (Ebyte E22-900T22S) · FreeRTOS (CMSIS-RTOS2)
 | FreeRTOS, tickless **kapalı** | ~1 mA | Her 1 ms SysTick ile uyanıyor |
 | FreeRTOS, debugger bağlıyken | ~70 µA | Debug birimi Stop'ta açık kalıyor |
 | **FreeRTOS + tickless idle (LPTIM1)** | **20–30 µA** | ~40× iyileşme. Bare-metal'e göre fark açık konu (bkz. §6) |
-| MCU uyanık (4 MHz) | ___ mA | ölçülecek |
-| Ses modülü (LED'li) | ___ mA | ölçülecek |
-| LoRa HAT (WOR / Mod 0 / uyku) | ___ | ölçülecek |
+| MCU uyanık (4 MHz) | 1.2 mA |
+| Ses modülü (LED'li) | 3 mA | 
+| LoRa HAT (WOR / Mod 0 / uyku) | 0.5 mA / 16mA / 2-3 uA | 
+
+### 1.1 Beklenen değerler (datasheet + tahmin, ölçülmedi)
+
+Bu tablo ölçüm değil; ölçümlerin hangi aralıkta çıkması gerektiğini gösteren bir referans. Değerler 3.3 V (ses modülü) ve 5 V (HAT) beslemeye göre verildi.
+
+| Bileşen / mod | Beklenen | Dayanak |
+|---|---|---|
+| MCU çekirdeği, Run, 4 MHz, Range 2 | ~0.4–0.5 mA | STM32L476 datasheet (~100 µA/MHz) |
+| MCU, bu karttaki gerçek uyanık hali | ~1–1.5 mA | Sleep'te zaten ~0.8 mA ölçüldü (açık çevre birimi saatleri); Run bunun üstünde olmalı |
+| MCU, ses ölçümü sırasında (ADC + DMA + TIM6) | ~1.5–2 mA, 128 ms boyunca | Run + ADC akımı |
+| Ses modülü: LM393 | ~0.4 mA (en çok 1 mA) | LM393 datasheet |
+| Ses modülü: elektret mikrofon bias | ~0.2–0.5 mA | tipik ~10 kΩ bias direnci |
+| Ses modülü: güç LED'i (kırmızı) | ~1–2 mA | 3.3 V, ~1 kΩ seri direnç varsayımı |
+| Ses modülü: pot (VR1) bölücüsü | ~0.1–0.3 mA | 10 kΩ civarı pot varsayımı |
+| **Ses modülü toplam (boşta)** | **~2–4 mA** | yukarıdakilerin toplamı; DO LED'i yanınca +1–2 mA |
+| E22-900T22S, Mod 0 sürekli alım | ~15–17 mA | Ebyte kullanım kılavuzu |
+| E22-900T22S, gönderim (22 dBm) | ~110–150 mA tepe | Ebyte kullanım kılavuzu (düğüm göndermiyor) |
+| E22-900T22S, derin uyku (Mod 3) | ~2–3 µA | Ebyte kullanım kılavuzu |
+| E22-900T22S, WOR alıcı, 2000 ms periyot | ~0.1–0.5 mA ortalama | tahmin: her periyotta kısa bir dinleme penceresi; datasheet'te verilmiyor |
+| Waveshare HAT kartının kendi yükü (LED, regülatör) | +1–5 mA | tahmin; HAT'ten ölçülen değer modülden yüksek çıkabilir |
+
+**Beklenen sistem bütçesi (boşta, nöbet modunda):**
+
+| Kalem | Ortalama akım |
+|---|---|
+| MCU (tickless, ölçüldü) | 0.02–0.03 mA |
+| Ses modülü (LED'li, tahmin) | 2–4 mA |
+| LoRa HAT, WOR (tahmin) | 1–5 mA |
+| **Toplam** | **~3–9 mA** |
+
+**Çıkarım:** MCU tarafı µA seviyesine indi, ama hazır modüller sistemi mA seviyesinde tutuyor. Ses modülü ve HAT, MCU'dan ~100–300 kat fazla çekiyor. Örneğin 2000 mAh'lik bir pil yalnızca MCU ile yıllarca, modüllerle birlikte ise yaklaşık 10–30 gün dayanır. Sonraki iyileştirmeler:
+- Ses modülündeki güç LED'ini sökmek (~1–2 mA kazanç)
+- LM393 yerine nanoamper seviyesinde bir karşılaştırıcı ya da "wake-on-sound" mikrofon kullanmak
+- Waveshare HAT yerine çıplak E22 modülünü doğrudan beslemek ve WOR periyodunu uzatmak (gecikme ↔ akım dengesi)
+- Modüllerin beslemesini MCU'nun kontrol ettiği bir anahtarla kesmek
 
 ## 2. Görev döngüsü (duty cycle) — log'lardan
 

@@ -16,9 +16,44 @@ Hardware: NUCLEO-L476RG (STM32L476RG, MSI 4 MHz, Range 2) · Sound module (elect
 | FreeRTOS, tickless **off** | ~1 mA | Woken by SysTick every 1 ms |
 | FreeRTOS, debugger connected | ~70 µA | Debug unit stays powered in Stop |
 | **FreeRTOS + tickless idle (LPTIM1)** | **20–30 µA** | ~40× improvement. Gap to bare-metal is an open issue (see §6) |
-| MCU awake (4 MHz) | ___ mA | to be measured |
-| Sound module (with LEDs) | ___ mA | to be measured |
-| LoRa HAT (WOR / Mode 0 / sleep) | ___ | to be measured |
+| MCU awake (4 MHz) | 1.2 mA | 
+| Sound module (with LEDs) | 3 mA |
+| LoRa HAT (WOR / Mode 0 / sleep) | 0.5 mA / 16mA / 2-3 uA | 
+
+### 1.1 Expected values (datasheet + estimates, not measured)
+
+This table is not a measurement; it is a reference for the range the measurements should fall into. Values assume 3.3 V (sound module) and 5 V (HAT) supply.
+
+| Component / mode | Expected | Basis |
+|---|---|---|
+| MCU core, Run, 4 MHz, Range 2 | ~0.4–0.5 mA | STM32L476 datasheet (~100 µA/MHz) |
+| MCU, actual awake state on this board | ~1–1.5 mA | ~0.8 mA was already measured in Sleep (peripheral clocks on); Run should be above that |
+| MCU during sound capture (ADC + DMA + TIM6) | ~1.5–2 mA for 128 ms | Run + ADC current |
+| Sound module: LM393 | ~0.4 mA (max 1 mA) | LM393 datasheet |
+| Sound module: electret microphone bias | ~0.2–0.5 mA | typical ~10 kΩ bias resistor |
+| Sound module: power LED (red) | ~1–2 mA | assumes 3.3 V and ~1 kΩ series resistor |
+| Sound module: pot (VR1) divider | ~0.1–0.3 mA | assumes a ~10 kΩ pot |
+| **Sound module total (idle)** | **~2–4 mA** | sum of the above; +1–2 mA when the DO LED is on |
+| E22-900T22S, Mode 0 continuous receive | ~15–17 mA | Ebyte user manual |
+| E22-900T22S, transmit (22 dBm) | ~110–150 mA peak | Ebyte user manual (the node does not transmit) |
+| E22-900T22S, deep sleep (Mode 3) | ~2–3 µA | Ebyte user manual |
+| E22-900T22S, WOR receiver, 2000 ms period | ~0.1–0.5 mA average | estimate: a short listen window every period; not given in the datasheet |
+| Waveshare HAT board overhead (LED, regulator) | +1–5 mA | estimate; the HAT may measure higher than the bare module |
+
+**Expected system budget (idle, sentinel mode):**
+
+| Item | Average current |
+|---|---|
+| MCU (tickless, measured) | 0.02–0.03 mA |
+| Sound module (with LEDs, estimate) | 2–4 mA |
+| LoRa HAT, WOR (estimate) | 1–5 mA |
+| **Total** | **~3–9 mA** |
+
+**Takeaway:** the MCU side is down to µA, but the off-the-shelf modules keep the system at mA level; the sound module and the HAT draw ~100–300× more than the MCU. A 2000 mAh battery would last years with the MCU alone, but only about 10–30 days with the modules. Next improvements:
+- Remove the power LED on the sound module (~1–2 mA saved)
+- Replace the LM393 with a nanoamp comparator or a wake-on-sound microphone
+- Power a bare E22 module directly instead of the Waveshare HAT, and lengthen the WOR period (latency ↔ current trade-off)
+- Cut the modules' supply with a switch controlled by the MCU
 
 ## 2. Duty cycle — from the logs
 
