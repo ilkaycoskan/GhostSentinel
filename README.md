@@ -135,11 +135,8 @@ Key files:
 ## Roadmap
 
 - [ ] High-side switching for the flight controller (P-MOSFET + N-MOSFET driver + RC soft-start)
-- [ ] Find the extra current in tickless mode (20–30 µA vs. 1–2 µA bare-metal)
-- [ ] LoRa module current vs. WOR period vs. latency
 - [ ] LoRa security: a foreign packet on the same channel was received during testing → network ID, E22 encryption key, authenticated commands
 - [ ] `-O2` analysis time, fewer Goertzel bins / FFT comparison
-- [ ] Feedback from the main system itself (e.g. a "done" GPIO line from the flight controller) in addition to LoRa/button
 - [ ] Integration with a PX4 flight controller over MAVLink
 
 ## License
